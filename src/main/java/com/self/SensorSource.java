@@ -37,7 +37,7 @@ public class SensorSource extends RichParallelSourceFunction<SensorEvent> {
             long curTime = Calendar.getInstance().getTimeInMillis();
 
             // emit SensorReadings
-            for (int i = 0; i < 10; i++) {
+            for (int i = 0; i < 2; i++) {
                 // update current temperature
                 curFTemp[i] += rand.nextGaussian() * 0.5;
                 // emit reading
@@ -45,7 +45,7 @@ public class SensorSource extends RichParallelSourceFunction<SensorEvent> {
             }
 
             // wait for 100 ms
-            Thread.sleep(100);
+            Thread.sleep(500);
         }
     }
 
