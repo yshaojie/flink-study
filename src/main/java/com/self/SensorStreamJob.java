@@ -40,7 +40,7 @@ public class SensorStreamJob {
                 .filter(new SensorEventFilterFunction())
         ;
         //设置发送发送水位线的间隔
-        environment.getConfig().setAutoWatermarkInterval(5_1000L);
+        environment.getConfig().setAutoWatermarkInterval(1000L);
         environment.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
         final DataStream<SensorEvent> outputStreamOperator = streamOperator
                 .setParallelism(1)
@@ -48,7 +48,7 @@ public class SensorStreamJob {
                 .assignTimestampsAndWatermarks(new SensorEventTimeAssigner(Time.seconds(10)))
                 .keyBy("id")
                 .window(new MaxTimestampWindowAssigner(Time.seconds(10)))
-//                .trigger(new SensorEventWindowTrigger())
+                .trigger(new SensorEventWindowTrigger())
                 .process(new AvgProcessWindowFunction())
                 ;
         outputStreamOperator.print();
@@ -105,14 +105,19 @@ public class SensorStreamJob {
         public TriggerResult onElement(SensorEvent element, long timestamp, TimeWindow window, TriggerContext ctx) throws Exception {
             //maxTimestamp=End-1 表示窗口的最大有效时间
             //getCurrentWatermark为当前数据流已经进行到的水位线,即数据处理到哪个阶段了
-            if (window.maxTimestamp() < ctx.getCurrentWatermark()) {
+            if (window.maxTimestamp() <= ctx.getCurrentWatermark()) {
                 return TriggerResult.FIRE;
             } else {
                 //这里需要注册一个一个触发时间,保证TimeWindow能够及时的触发操作
                 //window.getEnd会导致窗口计算时间延迟
                 //因为窗口的有效期为maxTimestamp=End-1
-//                System.out.println(new Date(window.getEnd()));
-                ctx.registerEventTimeTimer(window.getEnd());
+                /**
+                 * 注意这里注册的时间一定要<=WindowOperator#cleanupTime(Window)
+                 * 因为WindowOperator在方法里面会注册一个clean time,专门用来清除窗口状态
+                 * 如果在cleanupTime之后注册,则窗口的数据已经被清除,导致无法进行计算
+                 * 所以这里如果用时间戳window.getEnd(),则无法进行process计算
+                 */
+                ctx.registerEventTimeTimer(window.maxTimestamp());
                 if (element.temperature > 100) {
                     //这里可以实现自定义触发逻辑
                 }
@@ -131,24 +136,19 @@ public class SensorStreamJob {
 
         @Override
         public TriggerResult onEventTime(long time, TimeWindow window, TriggerContext ctx) throws Exception {
-
-            log.info("Trigger.onEventTime,time={},current={}",time, System.currentTimeMillis());
-            log.info("Trigger.onEventTime,time={},getEnd={}",time, window.getEnd());
-
             //只有当trigger时间为窗口的End时间是才触发计算
-            if (time == window.getEnd()) {
-                System.out.println("TriggerResult.FIRE");
-                return TriggerResult.FIRE_AND_PURGE;
+            if (time == window.maxTimestamp()) {
+                System.out.println(this+"TriggerResult.FIRE TimeWindow="+window);
+                return TriggerResult.FIRE;
             } else {
-                System.out.println("TriggerResult.CONTINUE");
+                System.out.println(this+"TriggerResult.CONTINUE");
                 return TriggerResult.CONTINUE;
             }
         }
 
         @Override
         public void clear(TimeWindow window, TriggerContext ctx) throws Exception {
-            log.info("clear TimeWindow={}",window);
-            log.info("clear TimeWindow Status");
+            System.out.println(this+"clear TimeWindow="+window);
         }
     }
 
